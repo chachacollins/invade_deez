@@ -21,6 +21,8 @@ typedef struct {
 
 #define INITIAL_ENEMY_CAPACITY 10
 #define INITIAL_LASER_CAPACITY 10
+#define BASE_SPAWN_INTERVAL 1.0f
+#define MINIMUM_SPAWN_INTERVAL 0.1f
 
 int main() {
   const int width = 680;
@@ -50,7 +52,7 @@ int main() {
 
   // Timer for spawning enemies
   float spawn_timer = 0.0f;
-  float spawn_interval = 1.0f; // spawn every 1 second
+  float spawn_interval = BASE_SPAWN_INTERVAL;
 
   // Set target FPS
   SetTargetFPS(120);
@@ -124,8 +126,11 @@ int main() {
         i++;
       }
     }
-    if (score_calc / 10 > 0) {
-      spawn_interval = 0.1f;
+    if (score_calc / 5 > 0) {
+      spawn_interval = BASE_SPAWN_INTERVAL - ((float)score_calc / 2) * 0.1f;
+      if (spawn_interval < MINIMUM_SPAWN_INTERVAL) {
+        spawn_interval = MINIMUM_SPAWN_INTERVAL;
+      }
     }
 
     char score[20];
