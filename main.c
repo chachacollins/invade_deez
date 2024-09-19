@@ -2,7 +2,12 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
 
+#define INITIAL_ENEMY_CAPACITY 10
+#define INITIAL_LASER_CAPACITY 10
+#define BASE_SPAWN_INTERVAL 1.0f
+#define MINIMUM_SPAWN_INTERVAL 0.1f
 // game state engine
 typedef enum { GAME_RUNNING, GAME_OVER } GameState;
 
@@ -23,10 +28,22 @@ typedef struct {
   Rectangle laser_frame_rec;
 } Laser;
 
-#define INITIAL_ENEMY_CAPACITY 10
-#define INITIAL_LASER_CAPACITY 10
-#define BASE_SPAWN_INTERVAL 1.0f
-#define MINIMUM_SPAWN_INTERVAL 0.1f
+bool restart_game(Player *player, int *enemy_count, Enemy *enemies,
+                  int *score_calc, float *spawn_interval) {
+  player->player_pos.x = 300.0f;
+  player->player_pos.y = 600.0f;
+  *enemy_count = 0;
+  *score_calc = 0;
+  *spawn_interval = BASE_SPAWN_INTERVAL;
+
+  // Optionally reset the enemies' positions (if needed for your logic)
+  for (int i = 0; i < *enemy_count; i++) {
+    enemies[i].enemy_pos.x = 0.0f;
+    enemies[i].enemy_pos.y = 0.0f;
+  }
+
+  return true;
+}
 
 int main() {
   const int width = 680;
@@ -84,6 +101,11 @@ int main() {
     // Update game state based on collision
     if (isDead) {
       gameState = GAME_OVER; // Change game state to GAME_OVER
+      if (gameState == GAME_OVER && IsKeyPressed(KEY_R)) {
+        restart_game(&player, &enemy_count, enemies, &score_calc,
+                     &spawn_interval);
+        gameState = GAME_RUNNING;
+      }
     }
     if (gameState == GAME_RUNNING) {
 
@@ -122,10 +144,14 @@ int main() {
 
       // Handle keyboard inputs
       if (IsKeyDown(KEY_H) || IsKeyDown(KEY_LEFT)) {
-        player.player_pos.x -= 2;
+        if (player.player_pos.x > 0) {
+          player.player_pos.x -= 2;
+        }
       }
       if (IsKeyDown(KEY_L) || IsKeyDown(KEY_RIGHT)) {
-        player.player_pos.x += 2;
+        if (player.player_pos.x <= width - player.player_frame_rec.width) {
+          player.player_pos.x += 2;
+        }
       }
 
       // Handle laser firing
@@ -173,6 +199,7 @@ int main() {
     // check if player is dead
     if (gameState == GAME_OVER) {
       DrawText("You are dead", 300, 500, 36, RED);
+      DrawText(score, 500, 0.0, 36, RED);
     } else {
 
       // Draw Score
