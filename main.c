@@ -2,22 +2,25 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
 
 #define INITIAL_ENEMY_CAPACITY 10
 #define INITIAL_LASER_CAPACITY 10
 #define BASE_SPAWN_INTERVAL 1.0f
 #define MINIMUM_SPAWN_INTERVAL 0.1f
-// game state engine
+
+Music background_music;
+Music game_over_music;
+
+// Game state engine
 typedef enum { GAME_RUNNING, GAME_OVER } GameState;
 
-// player defining struct
+// Player defining struct
 typedef struct {
   Vector2 player_pos;
   Rectangle player_frame_rec;
 } Player;
 
-// enemy defining struct
+// Enemy defining struct
 typedef struct {
   Vector2 enemy_pos;
   Rectangle enemy_frame_rec;
@@ -28,18 +31,22 @@ typedef struct {
   Rectangle laser_frame_rec;
 } Laser;
 
-bool restart_game(Player *player, int *enemy_count, Enemy *enemies,
-                  int *score_calc, float *spawn_interval) {
+bool restart_game(Player *player, int *enemy_count, Enemy **enemies,
+                  Laser **lasers, int *laser_count, int *score_calc,
+                  float *spawn_interval) {
   player->player_pos.x = 300.0f;
   player->player_pos.y = 600.0f;
   *enemy_count = 0;
+  *laser_count = 0;
   *score_calc = 0;
   *spawn_interval = BASE_SPAWN_INTERVAL;
 
-  // Optionally reset the enemies' positions (if needed for your logic)
-  for (int i = 0; i < *enemy_count; i++) {
-    enemies[i].enemy_pos.x = 0.0f;
-    enemies[i].enemy_pos.y = 0.0f;
+  // Reallocate memory for enemies and lasers
+  *enemies = (Enemy *)realloc(*enemies, INITIAL_ENEMY_CAPACITY * sizeof(Enemy));
+  *lasers = (Laser *)realloc(*lasers, INITIAL_LASER_CAPACITY * sizeof(Laser));
+
+  if (*enemies == NULL || *lasers == NULL) {
+    return false;
   }
 
   return true;
@@ -51,6 +58,12 @@ int main() {
   int score_calc = 0;
   GameState gameState = GAME_RUNNING;
   InitWindow(width, height, "I am a scam game");
+  InitAudioDevice();
+
+  // Load audio
+  background_music = LoadMusicStream("./assets/vh.mp3");
+  game_over_music = LoadMusicStream("./assets/va.mp3");
+  PlayMusicStream(background_music);
 
   // Load sprites
   Texture2D spaceship = LoadTexture("./sprites/player.png");
@@ -58,17 +71,17 @@ int main() {
   Texture2D laser_sprite = LoadTexture("./sprites/laser.png");
 
   // Player initialization
-  Player player = {
-      .player_pos = {300.0f, 600.0f},
-      .player_frame_rec = {0.0f, 0.0f, spaceship.width, spaceship.height}};
+  Player player = {.player_pos = {300.0f, 600.0f},
+                   .player_frame_rec = {0.0f, 0.0f, (float)spaceship.width,
+                                        (float)spaceship.height}};
 
   // Enemy array
-  Enemy *enemies = malloc(INITIAL_ENEMY_CAPACITY * sizeof(Enemy));
+  Enemy *enemies = (Enemy *)malloc(INITIAL_ENEMY_CAPACITY * sizeof(Enemy));
   int enemy_count = 0;
   int enemy_capacity = INITIAL_ENEMY_CAPACITY;
 
   // Laser array
-  Laser *lasers = malloc(INITIAL_LASER_CAPACITY * sizeof(Laser));
+  Laser *lasers = (Laser *)malloc(INITIAL_LASER_CAPACITY * sizeof(Laser));
   int laser_count = 0;
   int laser_capacity = INITIAL_LASER_CAPACITY;
 
@@ -78,12 +91,8 @@ int main() {
 
   // Set target FPS
   SetTargetFPS(120);
+
   while (!WindowShouldClose()) {
-
-    // Update player frame rectangle position to match player movement
-    player.player_frame_rec.x = player.player_pos.x;
-    player.player_frame_rec.y = player.player_pos.y;
-
     bool isDead = false;
     for (int i = 0; i < enemy_count; i++) {
       if (CheckCollisionRecs(
@@ -100,25 +109,50 @@ int main() {
 
     // Update game state based on collision
     if (isDead) {
-      gameState = GAME_OVER; // Change game state to GAME_OVER
-      if (gameState == GAME_OVER && IsKeyPressed(KEY_R)) {
-        restart_game(&player, &enemy_count, enemies, &score_calc,
-                     &spawn_interval);
+      gameState = GAME_OVER;
+      UpdateMusicStream(game_over_music);
+      PlayMusicStream(game_over_music);
+      if (IsKeyPressed(KEY_R)) {
+        StopMusicStream(background_music);
+        UnloadMusicStream(background_music);
+        StopMusicStream(game_over_music);
+        UnloadMusicStream(game_over_music);
+        game_over_music = LoadMusicStream("./assets/va.mp3");
+        PlayMusicStream(game_over_music);
+
+        // Free and reallocate memory
+        free(enemies);
+        free(lasers);
+
+        if (!restart_game(&player, &enemy_count, &enemies, &lasers,
+                          &laser_count, &score_calc, &spawn_interval)) {
+          CloseWindow();
+          return -1;
+        }
+
+        background_music = LoadMusicStream("./assets/vh.mp3");
+        PlayMusicStream(background_music);
         gameState = GAME_RUNNING;
       }
     }
+
     if (gameState == GAME_RUNNING) {
+      UpdateMusicStream(background_music);
 
       // Update spawn timer
       spawn_timer += GetFrameTime();
       if (spawn_timer >= spawn_interval) {
-        // Reset timer
         spawn_timer = 0.0f;
 
-        // Check if we need to resize the enemies array
         if (enemy_count >= enemy_capacity) {
           enemy_capacity *= 2; // double the capacity
-          enemies = realloc(enemies, enemy_capacity * sizeof(Enemy));
+          Enemy *temp =
+              (Enemy *)realloc(enemies, enemy_capacity * sizeof(Enemy));
+          if (temp == NULL) {
+            CloseWindow();
+            return -1;
+          }
+          enemies = temp;
         }
 
         // Spawn new enemy
@@ -131,7 +165,7 @@ int main() {
 
       // Move enemies downwards and remove off-screen enemies
       for (int i = 0; i < enemy_count;) {
-        enemies[i].enemy_pos.y += 2; // Move enemy down
+        enemies[i].enemy_pos.y += 2;
 
         if (enemies[i].enemy_pos.y > height) {
           score_calc++;
@@ -158,7 +192,13 @@ int main() {
       if (IsKeyPressed(KEY_SPACE) && laser_count < laser_capacity) {
         if (laser_count >= laser_capacity) {
           laser_capacity *= 2;
-          lasers = realloc(lasers, laser_capacity * sizeof(Laser));
+          Laser *temp =
+              (Laser *)realloc(lasers, laser_capacity * sizeof(Laser));
+          if (temp == NULL) {
+            CloseWindow();
+            return -1;
+          }
+          lasers = temp;
         }
 
         lasers[laser_count].laser_pos =
@@ -174,7 +214,6 @@ int main() {
       for (int i = 0; i < laser_count;) {
         lasers[i].laser_pos.y -= 5;
 
-        // Check if laser is off-screen
         if (lasers[i].laser_pos.y < 0) {
           lasers[i] = lasers[laser_count - 1];
           laser_count--;
@@ -182,6 +221,7 @@ int main() {
           i++;
         }
       }
+
       if (score_calc / 5 > 0) {
         spawn_interval = BASE_SPAWN_INTERVAL - ((float)score_calc / 2) * 0.1f;
         if (spawn_interval < MINIMUM_SPAWN_INTERVAL) {
@@ -189,20 +229,18 @@ int main() {
         }
       }
     }
+
     char score[20];
     sprintf(score, "%d", score_calc);
-    // Detect collision
 
     BeginDrawing();
     ClearBackground(BLACK);
     DrawFPS(0, 0);
-    // check if player is dead
+
     if (gameState == GAME_OVER) {
       DrawText("You are dead", 300, 500, 36, RED);
       DrawText(score, 500, 0.0, 36, RED);
     } else {
-
-      // Draw Score
       DrawText(score, 600, 0, 16, RED);
 
       // Draw enemies
@@ -213,14 +251,26 @@ int main() {
 
       // Draw lasers
       for (int i = 0; i < laser_count; i++) {
-        DrawTextureRec(laser_sprite, lasers[i].laser_frame_rec,
-                       lasers[i].laser_pos, WHITE);
+        Vector2 origin = (Vector2){lasers[i].laser_frame_rec.width / 2,
+                                   lasers[i].laser_frame_rec.height / 2};
+        Vector2 position =
+            (Vector2){lasers[i].laser_pos.x +
+                          (lasers[i].laser_frame_rec.width) * 0.5f / 2,
+                      lasers[i].laser_pos.y +
+                          (lasers[i].laser_frame_rec.height - 2) * 0.5f / 2};
+
+        DrawTexturePro(laser_sprite, lasers[i].laser_frame_rec,
+                       (Rectangle){position.x, position.y,
+                                   lasers[i].laser_frame_rec.width * 0.5f,
+                                   lasers[i].laser_frame_rec.height * 0.05f},
+                       origin, 90.0f, WHITE);
       }
 
       // Draw player
       DrawTextureRec(spaceship, player.player_frame_rec, player.player_pos,
                      BLUE);
     }
+
     EndDrawing();
   }
 
@@ -230,7 +280,10 @@ int main() {
   UnloadTexture(spaceship);
   UnloadTexture(enemy_sprite);
   UnloadTexture(laser_sprite);
-
+  UnloadMusicStream(background_music);
+  UnloadMusicStream(game_over_music);
+  CloseAudioDevice();
   CloseWindow();
+
   return 0;
 }
